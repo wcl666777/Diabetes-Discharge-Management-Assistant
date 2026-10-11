@@ -1,0 +1,141 @@
+# 糖尿病出院患者智能随访助手 —— 一键启动全部服务
+#
+# 用法（在 my_project 根目录执行）：
+#   1) 仅启动基础设施（MySQL / Redis / Milvus 依赖）：
+#        docker compose up -d mysql redis etcd minio milvus
+#   2) 启动两个业务服务（前端 / Agent / RAG REST + MCP）：
+#        docker compose up -d
+#
+# 端口说明（与 .env 保持一致）：
+#   MySQL 3307 / Redis 6380 / Milvus 19531 / MinIO 9002、9003 / etcd 2379
+#   Agent 8000 / RAG REST + MCP 8001（MCP 端点 /rag/mcp）
+#
+# 注意：RAG 服务依赖本地大模型权重（BGE-M3 / reranker），需挂载到容器 /app/models 下。
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: diabetes_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: diabetes123
+      MYSQL_DATABASE: diabetes
+      MYSQL_USER: diabetes
+      MYSQL_PASSWORD: diabetes123
+    ports:
+      - "3307:3306"
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-udiabetes", "-pdiabetes123"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  redis:
+    image: redis:7
+    container_name: diabetes_redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: diabetes_etcd
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    ports:
+      - "2379:2379"
+    volumes:
+      - etcd_data:/etcd
+
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: diabetes_minio
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    command: minio server /minio_data --console-address ":9003"
+    ports:
+      - "9002:9000"
+      - "9003:9003"
+    volumes:
+      - minio_data:/minio_data
+
+  milvus:
+    image: milvusdb/milvus:v2.4.9
+    container_name: diabetes_milvus
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    ports:
+      - "19531:19530"
+      - "9091:9091"
+    depends_on:
+      - etcd
+      - minio
+
+  rag-service:
+    build:
+      context: ./rag_service
+      dockerfile: Dockerfile
+    container_name: diabetes_rag
+    environment:
+      MILVUS_HOST: milvus
+      MILVUS_PORT: 19530
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    env_file:
+      - ./rag_service/.env
+    ports:
+      - "8001:8001"
+    volumes:
+      # 挂载本地已下载的模型权重（bge-m3 / bge-reranker-large）
+      - ./rag_service/models:/app/models
+      - ./rag_service/data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_started
+
+  agent-service:
+    build:
+      context: ./agent_service
+      dockerfile: Dockerfile
+    container_name: diabetes_agent
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      RAG_MCP_SERVER_URL: http://rag-service:8001/rag
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    env_file:
+      - ./agent_service/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rag-service:
+        condition: service_started
+
+volumes:
+  mysql_data:
+  etcd_data:
+  minio_data:
