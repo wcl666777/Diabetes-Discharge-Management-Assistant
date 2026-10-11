@@ -33,6 +33,11 @@
 
 两个项目通过 **MCP 协议**协作：Agent 服务的问答 Agent 作为 MCP 客户端，调用 RAG 服务的 `search_knowledge_base` 工具完成知识检索。
 
+> 本仓库为**总入口 / 总编排**，同时包含两个子服务与 `docker-compose.yml`（一键启动）。
+> 两个服务也已拆分为**独立仓库**，可单独查看与使用：
+> - [Diabetes-RAG-QA-Service](https://github.com/wcl666777/Diabetes-RAG-QA-Service) —— 子项目一（RAG 知识问答服务）
+> - [Diabetes-Agent-Followup-Service](https://github.com/wcl666777/Diabetes-Agent-Followup-Service) —— 子项目二（多 Agent 随访服务）
+
 ---
 
 ## 三、整体架构
