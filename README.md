@@ -119,7 +119,7 @@ docker compose up -d mysql redis etcd minio milvus
 ```bash
 cd rag_service
 pip install -r requirements.txt
-cp .env.example .env                       # 配置 DEEPSEEK_API_KEY、模型路径、MySQL / Redis 等
+cp .env.example .env                       # 配置 DEEPSEEK_API_KEY、RAG_API_KEY、模型路径、MySQL / Redis 等
 
 # 导入知识库（公共指南 PDF → 解析 → 分块 → 向量化 → Milvus）
 python -m app.ingestion.build --dir ./data
@@ -139,7 +139,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8001
 ```bash
 cd ../agent_service
 pip install -r requirements.txt
-cp .env.example .env                       # 配置 JWT_SECRET、MySQL、RAG MCP 地址
+cp .env.example .env                       # 配置 JWT_SECRET、MySQL、RAG MCP 地址、RAG_API_KEY
 python scripts/seed_patient.py             # 写入示例患者 / 医生 / 血糖记录
 
 uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -151,6 +151,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 |------|------|
 | http://localhost:8000 | 患者 / 医生演示前端 |
 | http://localhost:8000/docs | Agent 服务接口文档 |
+| http://localhost:8001 | RAG 知识库调试台（链路可视化） |
 | http://localhost:8001/docs | RAG 服务接口文档 |
 | http://localhost:8001/rag/mcp | RAG 服务 MCP 端点（Agent 调用） |
 
@@ -212,6 +213,11 @@ curl -X POST http://localhost:8000/api/v1/chat \
 | POST | /api/v1/kb/build | 知识库重建 |
 | GET  | /api/v1/kb/count | 向量库文档数 |
 | MCP | /rag/mcp | `search_knowledge_base` 工具（Agent 调用） |
+
+> RAG 服务的全部业务接口（`/api/v1/*`）与 MCP 端点（`/rag/mcp`）已开启鉴权：
+> 调用方须在请求头携带 `X-API-Key`，取值与 `rag_service/.env` 的 `RAG_API_KEY` 一致
+> （Agent 服务通过 `RAG_API_KEY` 自动携带；`/health`、`/docs` 保持开放）。
+> `POST /api/v1/kb/build` 的 `directory` 仅允许位于 `KB_ALLOWED_DIR` 之内。
 
 ---
 
